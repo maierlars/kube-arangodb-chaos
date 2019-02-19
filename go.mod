@@ -1,4 +1,4 @@
-module github.com/lamai92/kube-arangodb-chaos
+module github.com/maierlars/kube-arangodb-chaos
 
 require (
 	github.com/arangodb/go-driver v0.0.0-20190123094303-4da7b19c6d72
@@ -9,7 +9,6 @@ require (
 	github.com/docker/distribution v2.7.1+incompatible // indirect
 	github.com/docker/spdystream v0.0.0-20181023171402-6480d4af844c // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
-	github.com/fsnotify/fsnotify v1.4.7 // indirect
 	github.com/gogo/protobuf v1.2.0 // indirect
 	github.com/golang/groupcache v0.0.0-20190129154638-5b532d6fd5ef // indirect
 	github.com/golang/mock v1.2.0 // indirect
@@ -21,7 +20,7 @@ require (
 	github.com/imdario/mergo v0.3.7 // indirect
 	github.com/json-iterator/go v1.1.5 // indirect
 	github.com/juju/errgo v0.0.0-20140925100237-08cceb5d0b53 // indirect
-	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/mitchellh/go-homedir v1.1.0
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/northbright/ctx v0.0.0-20161024043329-d1b203ae2564
@@ -32,7 +31,8 @@ require (
 	github.com/pkg/errors v0.8.1
 	github.com/rs/zerolog v1.11.0 // indirect
 	github.com/spf13/afero v1.2.1 // indirect
-	github.com/spf13/pflag v1.0.3 // indirect
+	github.com/spf13/cobra v0.0.3
+	github.com/spf13/viper v1.3.1
 	github.com/stretchr/objx v0.1.1 // indirect
 	github.com/tomnomnom/linkheader v0.0.0-20180905144013-02ca5825eb80 // indirect
 	golang.org/x/crypto v0.0.0-20190211182817-74369b46fc67 // indirect
@@ -42,7 +42,6 @@ require (
 	golang.org/x/time v0.0.0-20181108054448-85acf8d2951c // indirect
 	google.golang.org/grpc v1.18.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	gopkg.in/yaml.v2 v2.2.2 // indirect
 	k8s.io/api v0.0.0-20190202010724-74b699b93c15
 	k8s.io/apiextensions-apiserver v0.0.0-20190213032923-e6303366453a
 	k8s.io/apimachinery v0.0.0-20190117220443-572dfc7bdfcb

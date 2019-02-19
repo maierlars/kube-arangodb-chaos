@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -44,7 +46,7 @@ func main() {
 		panic(err)
 	}*/
 
-	/*nodes, err := client.CoreV1().Nodes().List(metav1.ListOptions{})
+	nodes, err := client.CoreV1().Nodes().List(metav1.ListOptions{})
 	if err != nil {
 		log.Fatalf("failed to obtain node list: %s", err.Error())
 	}
@@ -80,59 +82,76 @@ func main() {
 		usableNodes = append(usableNodes, node.GetName())
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 22*time.Minute)
+	/*ctx, cancel := context.WithTimeout(context.Background(), 22*time.Minute)
 	defer cancel()*/
 	ctx := context.Background()
 	logger, err := NewPodLogger(ctx, "default", "logs/"+startTime+"/pods", client)
 	if err != nil {
 		log.Fatalf("Failed to create pod logger: %s", err.Error())
 	}
-	/*
-	   chaos:
-	   	for {
-	   		select {
-	   		case <-time.After(5 * time.Second):
 
-	   			switch rand.Intn(2) {
-	   			case 0:
-	   				pods, err := client.CoreV1().Pods("default").List(metav1.ListOptions{})
-	   				if err != nil {
-	   					log.Printf("Failed to get pod list: %s", err.Error())
-	   				}
+chaos:
+	for {
+		select {
+		case <-time.After(5 * time.Second):
 
-	   				if len(pods.Items) > 0 {
+			switch rand.Intn(6) {
+			case 0, 1, 2:
+				pods, err := client.CoreV1().Pods("default").List(metav1.ListOptions{})
+				if err != nil {
+					log.Printf("Failed to get pod list: %s", err.Error())
+				}
 
-	   					podid := rand.Intn(len(pods.Items))
+				if len(pods.Items) > 0 {
 
-	   					gracePeriod := int64(0)
+					podid := rand.Intn(len(pods.Items))
 
-	   					if err := deletePod(ctx, client, "default", pods.Items[podid].GetName(), &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod}); err != nil {
-	   						log.Fatalf("Failed to delete pod: %s", err.Error())
-	   					}
-	   				}
-	   			case 1:
-	   				nodeid := rand.Intn(len(usableNodes))
+					gracePeriod := int64(0)
 
-	   				log.Printf("Draining node %s", usableNodes[nodeid])
-	   				if err := drainNode(ctx, client, usableNodes[nodeid], &metav1.DeleteOptions{}); err != nil {
-	   					log.Fatalf("Failed to drain node: %s", err.Error())
-	   				}
+					if err := deletePod(ctx, client, "default", pods.Items[podid].GetName(), &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod}); err != nil {
+						log.Fatalf("Failed to delete pod: %s", err.Error())
+					}
+				}
+			case 3, 4:
+				nodeid := rand.Intn(len(usableNodes))
 
-	   				log.Printf("Drain completed %s", usableNodes[nodeid])
+				log.Printf("Draining node %s", usableNodes[nodeid])
+				if err := drainNode(ctx, client, usableNodes[nodeid], &metav1.DeleteOptions{}); err != nil {
+					log.Fatalf("Failed to drain node: %s", err.Error())
+				}
 
-	   				time.Sleep(10 * time.Second)
+				log.Printf("Drain completed %s", usableNodes[nodeid])
 
-	   				if err := uncordonNode(client, usableNodes[nodeid]); err != nil {
-	   					log.Fatalf("Failed to uncordon node: %s", err.Error())
-	   				}
-	   			}
+				time.Sleep(10 * time.Second)
 
-	   		case <-ctx.Done():
-	   			break chaos
-	   		}
-	   	}
+				if err := uncordonNode(client, usableNodes[nodeid]); err != nil {
+					log.Fatalf("Failed to uncordon node: %s", err.Error())
+				}
+			case 5:
+				nodeid := rand.Intn(len(usableNodes))
 
-	   	time.Sleep(5 * time.Second)*/
+				gracePeriod := int64(10)
+
+				log.Printf("Draining node %s, with force and no grace-period", usableNodes[nodeid])
+				if err := drainNode(ctx, client, usableNodes[nodeid], &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod}); err != nil {
+					log.Fatalf("Failed to drain node: %s", err.Error())
+				}
+
+				log.Printf("Drain completed %s", usableNodes[nodeid])
+
+				time.Sleep(10 * time.Second)
+
+				if err := uncordonNode(client, usableNodes[nodeid]); err != nil {
+					log.Fatalf("Failed to uncordon node: %s", err.Error())
+				}
+			}
+
+		case <-ctx.Done():
+			break chaos
+		}
+	}
+
+	time.Sleep(5 * time.Second)
 
 	logger.Wait()
 
