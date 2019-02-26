@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"math/rand"
@@ -119,20 +120,34 @@ func main() {
 	}
 
 	waitForDeploymentInSync := func(ctx context.Context, deploymentName string) error {
-		/*deployment, err := arango.ArangoDeployments("default").Get(deploymentName, metav1.GetOptions{})
+		deployment, err := arango.ArangoDeployments("default").Get(deploymentName, metav1.GetOptions{})
 		if err != nil {
 			return err
-		}*/
+		}
 
 		srv, ok := deploymentExternalServiceMap[deploymentName]
 		if !ok {
 			return fmt.Errorf("No external access to arangodb deployment %s", deploymentName)
 		}
 
-		conn, err := http.NewConnection(http.ConnectionConfig{
-			Endpoints:          []string{"http://" + srv.Status.LoadBalancer.Ingress[0].IP + ":8529"},
-			DontFollowRedirect: true,
-		})
+		if len(srv.Status.LoadBalancer.Ingress) == 0 {
+			log.Println("No LoadBalancer IP known for " + deploymentName)
+			return nil
+		}
+
+		hasTLS := deployment.Spec.TLS.GetCASecretName() != "None"
+
+		var config http.ConnectionConfig
+		if hasTLS {
+			config.Endpoints = []string{"https://" + srv.Status.LoadBalancer.Ingress[0].IP + ":8529"}
+			config.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+		} else {
+			config.Endpoints = []string{"http://" + srv.Status.LoadBalancer.Ingress[0].IP + ":8529"}
+		}
+
+		config.DontFollowRedirect = true
+
+		conn, err := http.NewConnection(config)
 		if err != nil {
 			return err
 		}
