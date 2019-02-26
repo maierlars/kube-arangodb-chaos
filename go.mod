@@ -1,11 +1,12 @@
 module github.com/maierlars/kube-arangodb-chaos
 
 require (
-	github.com/arangodb/go-driver v0.0.0-20190123094303-4da7b19c6d72
+	github.com/arangodb/go-driver v0.0.0-20190225125413-7b8df57a7f12
 	github.com/arangodb/go-upgrade-rules v0.0.0-20180809110947-031b4774ff21 // indirect
 	github.com/arangodb/kube-arangodb v0.0.0-20190212161635-5ef27863841d
 	github.com/cenkalti/backoff v2.1.1+incompatible // indirect
 	github.com/dchest/uniuri v0.0.0-20160212164326-8902c56451e9 // indirect
+	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/docker/distribution v2.7.1+incompatible // indirect
 	github.com/docker/spdystream v0.0.0-20181023171402-6480d4af844c // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
