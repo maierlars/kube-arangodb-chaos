@@ -161,6 +161,9 @@ func main() {
 		}
 
 		for name, m := range health.Health {
+			if m.CanBeDeleted {
+				continue // Ignore servers that can be deleted
+			}
 			if m.Status != driver.ServerStatusGood {
 				return fmt.Errorf("Member Status not GOOD: %s/%s", deploymentName, name)
 			}
