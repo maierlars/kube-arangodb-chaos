@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/pkg/errors"
 	policy "k8s.io/api/policy/v1beta1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	fields "k8s.io/apimachinery/pkg/fields"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -76,9 +78,20 @@ func evictPod(ctx context.Context, client k8s.Interface, name, namespace string,
 	}
 	defer watcher.Stop()
 
-	log.Printf("Created Eviction for Pod %s/%s", namespace, name)
-	if err := client.CoreV1().Pods(namespace).Evict(eviction); err != nil {
-		return err
+	// try multiple times to evict the pod
+	for {
+		if err := client.CoreV1().Pods(namespace).Evict(eviction); err == nil {
+			log.Printf("Created Eviction for Pod %s/%s", namespace, name)
+			break
+		} else if !apierrors.IsTooManyRequests(err) {
+			return err
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
 	}
 
 	for {

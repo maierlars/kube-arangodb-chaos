@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"flag"
 	"fmt"
 	"log"
 	"math/rand"
@@ -36,10 +37,19 @@ func retry(ctx context.Context, predicate func() error) error {
 	}
 }
 
-var namespace string
-var logpath string
+var (
+	namespace    string
+	disableChaos bool
+)
+
+func init() {
+	flag.StringVar(&namespace, "namespace", "default", "Namespace to use, must exist")
+	flag.BoolVar(&disableChaos, "disable-chaos", false, "Use to disable chaos and only create logs")
+}
 
 func main() {
+
+	flag.Parse()
 
 	rand.Seed(time.Now().Unix())
 
@@ -70,12 +80,12 @@ func main() {
 		panic(err)
 	}
 
-	deployments, err := arango.ArangoDeployments("default").List(metav1.ListOptions{})
+	deployments, err := arango.ArangoDeployments(namespace).List(metav1.ListOptions{})
 	if err != nil {
 		panic(err)
 	}
 
-	services, err := client.CoreV1().Services("default").List(metav1.ListOptions{})
+	services, err := client.CoreV1().Services(namespace).List(metav1.ListOptions{})
 	if err != nil {
 		panic(err)
 	}
@@ -95,12 +105,12 @@ func main() {
 	}
 
 	generateJWTForDeployment := func(ctx context.Context, deploymentName string) (string, error) {
-		deployment, err := arango.ArangoDeployments("default").Get(deploymentName, metav1.GetOptions{})
+		deployment, err := arango.ArangoDeployments(namespace).Get(deploymentName, metav1.GetOptions{})
 		if err != nil {
 			return "", err
 		}
 
-		secret, err := k8sutil.GetTokenSecret(client.CoreV1().Secrets("default"), deployment.Spec.Authentication.GetJWTSecretName())
+		secret, err := k8sutil.GetTokenSecret(client.CoreV1().Secrets(namespace), deployment.Spec.Authentication.GetJWTSecretName())
 		if err != nil {
 			return "", err
 		}
@@ -120,7 +130,7 @@ func main() {
 	}
 
 	waitForDeploymentInSync := func(ctx context.Context, deploymentName string) error {
-		deployment, err := arango.ArangoDeployments("default").Get(deploymentName, metav1.GetOptions{})
+		deployment, err := arango.ArangoDeployments(namespace).Get(deploymentName, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
@@ -207,7 +217,7 @@ func main() {
 
 	waitForDeploymentReady := func(ctx context.Context, deploymentName string) error {
 		return retry(ctx, func() error {
-			deployment, err := arango.ArangoDeployments("default").Get(deploymentName, metav1.GetOptions{})
+			deployment, err := arango.ArangoDeployments(namespace).Get(deploymentName, metav1.GetOptions{})
 			if err != nil {
 				return err
 			}
@@ -235,7 +245,7 @@ func main() {
 					}
 
 					// Check if the pod exists and is in ready state
-					pod, err := client.CoreV1().Pods("default").Get(member.PodName, metav1.GetOptions{})
+					pod, err := client.CoreV1().Pods(namespace).Get(member.PodName, metav1.GetOptions{})
 					if err != nil {
 						return err
 					}
@@ -318,9 +328,19 @@ func main() {
 	/*ctx, cancel := context.WithTimeout(context.Background(), 22*time.Minute)
 	defer cancel()*/
 	ctx := context.Background()
-	_, err = NewPodLogger(ctx, "default", "logs/"+startTime+"/pods", client)
+	_, err = NewPodLogger(ctx, namespace, "logs/"+startTime+"/pods", client)
 	if err != nil {
 		log.Fatalf("Failed to create pod logger: %s", err.Error())
+	}
+
+	if disableChaos {
+		log.Print("Chaos is disabled")
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			}
+		}
 	}
 
 	time.Sleep(10 * time.Second)
@@ -332,7 +352,7 @@ func main() {
 
 		switch rand.Intn(6) {
 		case 0, 1, 2:
-			pods, err := client.CoreV1().Pods("default").List(metav1.ListOptions{})
+			pods, err := client.CoreV1().Pods(namespace).List(metav1.ListOptions{})
 			if err != nil {
 				log.Printf("Failed to get pod list: %s", err.Error())
 			}
@@ -343,7 +363,7 @@ func main() {
 
 				gracePeriod := int64(0)
 
-				if err := deletePod(ctx, client, "default", pods.Items[podid].GetName(), &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod}); err != nil {
+				if err := deletePod(ctx, client, namespace, pods.Items[podid].GetName(), &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod}); err != nil {
 					log.Fatalf("Failed to delete pod: %s", err.Error())
 				}
 			}
@@ -399,7 +419,7 @@ func main() {
 			fmt.Printf("%s\n", n.GetName())
 		}
 
-		depls, err := arango.DatabaseV1alpha().ArangoDeployments("default").List(metav1.ListOptions{})
+		depls, err := arango.DatabaseV1alpha().ArangoDeployments(namespace).List(metav1.ListOptions{})
 		if err != nil {
 			panic(err)
 		}
