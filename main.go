@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"sync"
 	"time"
 
 	driver "github.com/arangodb/go-driver"
@@ -18,6 +19,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8s "k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -40,12 +42,16 @@ func retry(ctx context.Context, predicate func() error) error {
 var (
 	namespace    string
 	disableChaos bool
+	concurrent   int
 )
 
 func init() {
 	flag.StringVar(&namespace, "namespace", "default", "Namespace to use, must exist")
 	flag.BoolVar(&disableChaos, "disable-chaos", false, "Use to disable chaos and only create logs")
+	flag.IntVar(&concurrent, "concurrent-chaos", 1, "Amount of concurrent chaos")
 }
+
+type cleanupFunc func() error
 
 func main() {
 
@@ -345,66 +351,156 @@ func main() {
 
 	time.Sleep(10 * time.Second)
 
-	for {
-		if err := waitForDeploymentsReady(ctx); err != nil {
-			panic(err)
-		}
-
-		switch rand.Intn(6) {
+	if err := waitForDeploymentsReady(ctx); err != nil {
+		log.Fatalf("Deployment not ready: %s", err.Error())
+	}
+	// Returns a (cleanup, chaos) functions
+	generateChaos := func() (func(), func()) {
+		switch rand.Intn(11) {
 		case 0, 1, 2:
-			pods, err := client.CoreV1().Pods(namespace).List(metav1.ListOptions{})
-			if err != nil {
-				log.Printf("Failed to get pod list: %s", err.Error())
-			}
+			return nil, func() {
+				pods, err := client.CoreV1().Pods(namespace).List(metav1.ListOptions{})
+				if err != nil {
+					log.Printf("Failed to get pod list: %s", err.Error())
+				}
 
-			if len(pods.Items) > 0 {
+				if len(pods.Items) > 0 {
 
-				podid := rand.Intn(len(pods.Items))
+					podid := rand.Intn(len(pods.Items))
 
-				gracePeriod := int64(0)
+					gracePeriod := int64(0)
 
-				if err := deletePod(ctx, client, namespace, pods.Items[podid].GetName(), &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod}); err != nil {
-					log.Fatalf("Failed to delete pod: %s", err.Error())
+					if err := deletePod(ctx, client, namespace, pods.Items[podid].GetName(), &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod}); err != nil {
+						log.Fatalf("Failed to delete pod: %s", err.Error())
+					}
 				}
 			}
+
 		case 3, 4:
 			nodeid := rand.Intn(len(usableNodes))
+			return func() {
+					if err := uncordonNode(client, usableNodes[nodeid]); err != nil {
+						log.Fatalf("Failed to uncordon node: %s", err.Error())
+					}
+				}, func() {
 
-			log.Printf("Draining node %s", usableNodes[nodeid])
-			if err := drainNode(ctx, client, usableNodes[nodeid], &metav1.DeleteOptions{}); err != nil {
-				log.Fatalf("Failed to drain node: %s", err.Error())
-			}
+					log.Printf("Draining node %s", usableNodes[nodeid])
+					if err := drainNode(ctx, client, usableNodes[nodeid], &metav1.DeleteOptions{}); err != nil {
+						log.Fatalf("Failed to drain node: %s", err.Error())
+					}
 
-			log.Printf("Drain completed %s", usableNodes[nodeid])
+					log.Printf("Drain completed %s", usableNodes[nodeid])
+				}
 
-			if err := waitForDeploymentsReady(ctx); err != nil {
-				panic(err)
-			}
-			log.Println("Deployments ready")
-
-			if err := uncordonNode(client, usableNodes[nodeid]); err != nil {
-				log.Fatalf("Failed to uncordon node: %s", err.Error())
-			}
 		case 5:
 			nodeid := rand.Intn(len(usableNodes))
 
-			gracePeriod := int64(10)
+			return func() {
+					if err := uncordonNode(client, usableNodes[nodeid]); err != nil {
+						log.Fatalf("Failed to uncordon node: %s", err.Error())
+					}
+				}, func() {
+					gracePeriod := int64(0)
 
-			log.Printf("Draining node %s, with force and no grace-period", usableNodes[nodeid])
-			if err := drainNode(ctx, client, usableNodes[nodeid], &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod}); err != nil {
-				log.Fatalf("Failed to drain node: %s", err.Error())
+					log.Printf("Draining node %s, with force and no grace-period", usableNodes[nodeid])
+					if err := drainNode(ctx, client, usableNodes[nodeid], &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod}); err != nil {
+						log.Fatalf("Failed to drain node: %s", err.Error())
+					}
+
+					log.Printf("Drain completed %s", usableNodes[nodeid])
+				}
+		case 6, 7, 8:
+			nodeid := rand.Intn(len(usableNodes))
+
+			return func() {
+					if err := uncordonNode(client, usableNodes[nodeid]); err != nil {
+						log.Fatalf("Failed to uncordon node: %s", err.Error())
+					}
+				}, func() {
+					gracePeriod := rand.Int63n(200) + 10
+
+					log.Printf("Draining node %s, with grace-period %d", usableNodes[nodeid], gracePeriod)
+					if err := drainNode(ctx, client, usableNodes[nodeid], &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod}); err != nil {
+						log.Fatalf("Failed to drain node: %s", err.Error())
+					}
+
+					log.Printf("Drain completed %s", usableNodes[nodeid])
+				}
+		case 9, 10:
+			nodeid := rand.Intn(len(usableNodes))
+
+			return func() {
+					if err := uncordonNode(client, usableNodes[nodeid]); err != nil {
+						log.Fatalf("Failed to uncordon node: %s", err.Error())
+					}
+				}, func() {
+					gracePeriod := int64(0)
+					log.Printf("Simulating crash of node %s", usableNodes[nodeid])
+					if err := simulateCrashNode(ctx, client, usableNodes[nodeid], &metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod}); err != nil {
+						log.Fatalf("Failed to crash node: %s", err.Error())
+					}
+
+					log.Printf("Crash completed %s", usableNodes[nodeid])
+				}
+		}
+
+		return nil, nil
+	}
+
+	for {
+		var cleanupFuncs []func()
+		var wg sync.WaitGroup
+		i := 0
+		for {
+			clean, chaos := generateChaos()
+
+			if clean != nil {
+				cleanupFuncs = append(cleanupFuncs, clean)
 			}
 
-			log.Printf("Drain completed %s", usableNodes[nodeid])
+			wg.Add(1)
+			go func() {
+				chaos()
+				wg.Done()
+			}()
+			log.Printf("Started chaos")
 
-			if err := waitForDeploymentsReady(ctx); err != nil {
-				panic(err)
-			}
-			log.Println("Deployments ready")
+			i++
 
-			if err := uncordonNode(client, usableNodes[nodeid]); err != nil {
-				log.Fatalf("Failed to uncordon node: %s", err.Error())
+			if i == concurrent {
+				break
 			}
+
+			timeout := rand.Intn(100)
+			log.Printf("Waiting %d seconds until next chaos", timeout)
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(timeout) * time.Second):
+			}
+		}
+
+		wg.Wait()
+
+		for {
+			timeout, cancel := context.WithTimeout(ctx, time.Minute)
+			if err := waitForDeploymentsReady(timeout); err == nil {
+				cancel()
+				break
+			} else if len(cleanupFuncs) > 0 {
+				log.Printf("Deployment not ready, cleanup on chaos: %s", err.Error())
+				cf := cleanupFuncs[0]
+				cleanupFuncs = cleanupFuncs[1:]
+				cf()
+			} else {
+				log.Printf("Deployment not ready: %s", err.Error())
+			}
+			cancel()
+		}
+
+		for _, cf := range cleanupFuncs {
+			cf()
 		}
 	}
 

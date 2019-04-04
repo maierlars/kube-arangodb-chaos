@@ -50,6 +50,7 @@ type PodManager interface {
 }
 
 // evictPod creates a Eviction resource for the given pod and waits for the pod to be deleted
+// Ignores if pod is not found
 func evictPod(ctx context.Context, client k8s.Interface, name, namespace string, options *metav1.DeleteOptions) error {
 
 	const (
@@ -73,7 +74,9 @@ func evictPod(ctx context.Context, client k8s.Interface, name, namespace string,
 	watcher, err := client.CoreV1().Pods(namespace).Watch(metav1.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector(api.ObjectNameField, name).String(),
 	})
-	if err != nil {
+	if apierrors.IsNotFound(err) {
+		return nil
+	} else if err != nil {
 		return errors.Wrap(err, "failed to watch pod")
 	}
 	defer watcher.Stop()
@@ -83,6 +86,8 @@ func evictPod(ctx context.Context, client k8s.Interface, name, namespace string,
 		if err := client.CoreV1().Pods(namespace).Evict(eviction); err == nil {
 			log.Printf("Created Eviction for Pod %s/%s", namespace, name)
 			break
+		} else if apierrors.IsNotFound(err) {
+			return nil
 		} else if !apierrors.IsTooManyRequests(err) {
 			return err
 		}

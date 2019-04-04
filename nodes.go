@@ -194,16 +194,41 @@ func drainNode(ctx context.Context, client k8s.Interface, name string, options *
 		return errors.Wrap(err, "failed to drain node")
 	}
 
-	pods, err := getNodePods(client, name)
-	if err != nil {
+	if err := runForEachPodOnNode(ctx, client, name, func(pod *v1.Pod) error {
+		return evictPod(ctx, client, pod.GetName(), pod.GetNamespace(), options)
+	}); err != nil {
 		return errors.Wrap(err, "failed to drain node")
 	}
+
+	return nil
+}
+
+func simulateCrashNode(ctx context.Context, client k8s.Interface, name string, options *metav1.DeleteOptions) error {
+	if err := cordonNode(client, name); err != nil {
+		return errors.Wrap(err, "failed to crash node")
+	}
+
+	if err := runForEachPodOnNode(ctx, client, name, func(pod *v1.Pod) error {
+		return deletePod(ctx, client, pod.GetNamespace(), pod.GetName(), options)
+	}); err != nil {
+		return errors.Wrap(err, "failed to crash node")
+	}
+
+	return nil
+}
+
+func runForEachPodOnNode(ctx context.Context, client k8s.Interface, name string, job func(*v1.Pod) error) error {
 
 	errorChannel := make(chan error)
 	defer close(errorChannel)
 	var waitGroup sync.WaitGroup
 	var errorList []error
-	var evictions int
+	var jobsDone int
+
+	pods, err := getNodePods(client, name)
+	if err != nil {
+		return errors.Wrap(err, "failed to run jobs")
+	}
 
 	for _, pod := range pods {
 
@@ -217,22 +242,19 @@ func drainNode(ctx context.Context, client k8s.Interface, name string, options *
 			continue
 		}
 
-		evictions++
+		jobsDone++
 		waitGroup.Add(1)
 		go func(pod v1.Pod) {
 			defer waitGroup.Done()
-			errorChannel <- errors.Wrap(
-				evictPod(ctx, client, pod.GetName(), pod.GetNamespace(), options),
-				"failed to drain node",
-			)
+			errorChannel <- errors.Wrap(job(&pod), "failed to run job")
 		}(pod)
 	}
 
 	// Check for errors
-	for evictions > 0 {
+	for jobsDone > 0 {
 		select {
 		case err := <-errorChannel:
-			evictions--
+			jobsDone--
 			if err != nil {
 				errorList = append(errorList, err)
 			}
